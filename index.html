@@ -1047,7 +1047,9 @@ function renderCart(){
   items.innerHTML = cart.map((item, idx) => {
     const lineTotal = item.prod.p != null ? item.prod.p * item.qty : null
     if(lineTotal) subtotal += lineTotal
-    const imgHtml = `<span style="font-size:22px">${item.prod.e}</span>`
+    const k2=(item.prod.b+' '+item.prod.n).toLowerCase().replace(/\s+/g,'_').slice(0,60)
+    const cartSrc=typeof EMBEDDED_IMGS!=='undefined'&&EMBEDDED_IMGS[k2]
+    const imgHtml = cartSrc ? `<img src="${cartSrc}" style="width:100%;height:100%;object-fit:cover;border-radius:8px">` : `<span style="font-size:22px">${item.prod.e}</span>`
     return `<div class="cart-item">
       <div class="cart-item-img">${imgHtml}</div>
       <div class="cart-item-info">
@@ -1297,7 +1299,7 @@ function renderAdmTable(){
     return mq && mc
   })
   document.getElementById('adm-prod-tbody').innerHTML = list.map(p => `
-    <tr><td><div class="tbl-prod-cell"><div class="tbl-prod-icon">${p.e}</div>
+    <tr><td><div class="tbl-prod-cell"><div class="tbl-prod-icon" style="overflow:hidden">${(()=>{const k=(p.b+' '+p.n).toLowerCase().replace(/\s+/g,'_').slice(0,60);const src=typeof EMBEDDED_IMGS!=='undefined'&&EMBEDDED_IMGS[k];return src?'<img src="'+src+'" style="width:100%;height:100%;object-fit:cover;border-radius:8px">':p.e})()}</div>
       <div><div class="tbl-prod-name">${p.n}</div><div class="tbl-prod-brand">${p.b}</div></div></div></td>
       <td><span class="cat-badge">${p.cat}</span></td>
       <td style="font-weight:700;color:var(--navy)">${fmt(p.p)}</td>
@@ -1309,7 +1311,7 @@ function renderAdmTable(){
 function renderAdmOffers(){
   document.getElementById('adm-offers-list').innerHTML = OFFERS.map(o => `
     <div class="adm-offer-row">
-      <div class="adm-offer-thumb">${o.e}</div>
+      <div class="adm-offer-thumb" style="overflow:hidden">${(()=>{const k=o.n.toLowerCase().replace(/\s+/g,'_').slice(0,60);const src=typeof EMBEDDED_IMGS!=='undefined'&&EMBEDDED_IMGS[k];return src?'<img src="'+src+'" style="width:100%;height:100%;object-fit:cover">':o.e})()}</div>
       <div style="flex:1;min-width:0"><div class="adm-offer-name">${o.n}</div><div class="adm-offer-price">${fmt(o.p)}</div></div>
       <div style="display:flex;align-items:center;gap:6px">
         <button class="tog on">Activa</button>
