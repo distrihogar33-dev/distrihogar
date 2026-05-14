@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>DistriHogar</title>
+<link rel="icon" type="image/svg+xml" href="favicon_truck.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap">
 <style>
@@ -1250,7 +1251,7 @@ function showToast(msg, icon = '✓'){
 
 // ── ADMIN ──
 function openAdminModal(){
-  if(sessionStorage.getItem('adm_auth')){ showAdminPanel(); return }
+  if(localStorage.getItem('adm_auth')){ showAdminPanel(); return }
   document.getElementById('login-modal').classList.add('open')
 }
 function closeAdminModal(){ document.getElementById('login-modal').classList.remove('open') }
@@ -1259,7 +1260,7 @@ function doLogin(e){
   const u = document.getElementById('login-user').value
   const p = document.getElementById('login-pass').value
   if(u === ADM_USER && p === ADM_PASS){
-    sessionStorage.setItem('adm_auth','1')
+    localStorage.setItem('adm_auth','1')
     closeAdminModal(); showAdminPanel(); initAdminPanel()
   } else { document.getElementById('login-err').style.display = 'block' }
 }
@@ -1273,7 +1274,7 @@ function switchToCatalog(){
   document.getElementById('view-admin').style.display = 'none'
 }
 function doLogout(){
-  sessionStorage.removeItem('adm_auth'); switchToCatalog()
+  localStorage.removeItem('adm_auth'); switchToCatalog()
   document.getElementById('login-user').value = ''
   document.getElementById('login-pass').value = ''
   document.getElementById('login-err').style.display = 'none'
