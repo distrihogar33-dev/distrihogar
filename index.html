@@ -1459,7 +1459,24 @@ const EMBEDDED_IMGS={"bayer_tafirol_500_x10": "data:image/png;base64,iVBORw0KGgo
 function fmt(p){return p!=null?'$'+Math.round(p).toLocaleString('es-AR'):'Sin stock'}
 
 function getImgForProd(p){
-  const k=(p.b+' '+p.n).toLowerCase().replace(/\s+/g,'_').slice(0,60)
+  // 1. Prioridad absoluta: imagen cargada en Supabase
+  if (p.image_url) return p.image_url;
+
+  // 2. Compatibilidad con imágenes embebidas antiguas
+  const key = p.n
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\/]/g, '_')
+    .replace(/\s+/g, '_');
+
+  if (typeof EMBEDDED_IMGS !== 'undefined' && EMBEDDED_IMGS[key]) {
+    return EMBEDDED_IMGS[key];
+  }
+
+  // 3. Si no hay imagen, devuelve null
+  return null;
+}  const k=(p.b+' '+p.n).toLowerCase().replace(/\s+/g,'_').slice(0,60)
   return EMBEDDED_IMGS[k]||null
 }
 
