@@ -5,6 +5,240 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>DistriHogar</title>
 <link rel="icon" type="image/svg+xml" href="favicon_truck.svg">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js">
+// ═══════════════════════════════════════════════
+// SUPABASE LAYER — carga datos reales sobre el estático
+// ═══════════════════════════════════════════════
+;(async function(){
+  try{
+    const SUPA = supabase.createClient('https://yfduuqmmsjnbcsrhheqd.supabase.co', 'sb_publishable_FCwNST27rb9rWFYUdDYeFA_aJumwRmL')
+
+    // ── Cargar productos ──
+    const { data: prods, error: eProds } = await SUPA
+      .from('products').select('*').eq('visible', true).order('category').order('name')
+    if(eProds) throw eProds
+
+    // ── Cargar ofertas ──
+    const { data: offData, error: eOffs } = await SUPA
+      .from('offers').select('*').eq('active', true).order('display_order')
+    if(eOffs) throw eOffs
+
+    // Reemplazar arrays estáticos con datos de DB
+    PRODUCTS.length = 0
+    prods.forEach(p => PRODUCTS.push({
+      n: p.name, b: p.brand||'', p: p.price,
+      cat: p.category||'Varios', e: p.emoji||'📦',
+      image_url: p.image_url, id: p.id
+    }))
+
+    OFFERS.length = 0
+    offData.forEach(o => OFFERS.push({
+      n: o.name, p: o.price, e: o.emoji||'🏷️',
+      image_url: o.image_url, id: o.id
+    }))
+
+    // Recalcular categorías
+    const newCats = [...new Set(PRODUCTS.map(p => p.cat).filter(Boolean))].sort()
+    uniqueCats.length = 0
+    newCats.forEach(c => uniqueCats.push(c))
+
+    // Re-render con datos reales
+    renderOffers()
+    renderPills()
+    renderProds()
+    console.log(`✓ Supabase: ${PRODUCTS.length} productos, ${OFFERS.length} ofertas`)
+
+    // ── Admin CRUD real ──
+    window._SUPA = SUPA
+
+    // Guardar producto (nuevo o editar)
+    window.saveProductToDB = async function(payload, id){
+      if(id){
+        const { error } = await SUPA.from('products').update(payload).eq('id', id)
+        return error
+      } else {
+        const { data, error } = await SUPA.from('products').insert(payload).select().single()
+        return error ? error : data
+      }
+    }
+
+    // Eliminar producto
+    window.deleteProductFromDB = async function(id){
+      const { error } = await SUPA.from('products').delete().eq('id', id)
+      return error
+    }
+
+    // Guardar oferta
+    window.saveOfferToDB = async function(payload, id){
+      if(id){
+        const { error } = await SUPA.from('offers').update(payload).eq('id', id)
+        return error
+      } else {
+        const { data, error } = await SUPA.from('offers').insert(payload).select().single()
+        return error ? error : data
+      }
+    }
+
+    // Eliminar oferta
+    window.deleteOfferFromDB = async function(id){
+      const { error } = await SUPA.from('offers').delete().eq('id', id)
+      return error
+    }
+
+    // Actualizar precios en lote
+    window.updatePricesInDB = async function(cat, factor){
+      const list = PRODUCTS.filter(p => p.cat===cat && p.p!=null)
+      for(const p of list){
+        const newPrice = Math.round(p.p * factor)
+        await SUPA.from('products').update({ price: newPrice }).eq('id', p.id)
+        p.p = newPrice
+      }
+      return list.length
+    }
+
+    // Hookear botones admin para que usen DB
+    _hookAdminDB()
+
+  } catch(e){
+    console.warn('Supabase no disponible, usando datos estáticos:', e.message)
+  }
+})()
+
+function _hookAdminDB(){
+  // Override saveProd para escribir en DB
+  window._origSaveProd = window.saveProd
+  window.saveProd = async function(){
+    const modal  = document.getElementById('prod-modal')
+    const name   = modal.querySelector('[placeholder="ej: Ibuprofeno 400 x10"]').value.trim()
+    const brand  = modal.querySelector('[placeholder="ej: Bayer"]').value.trim()
+    const price  = parseFloat(modal.querySelector('[type=number]').value)||null
+    const cat    = document.getElementById('modal-cat-sel')?.value||''
+    const prev   = document.getElementById('prod-img-prev')
+    const imgSrc = prev?.querySelector('img')?.src||null
+    // No guardar base64 en DB (demasiado grande) — solo URLs externas
+    const image_url = imgSrc && !imgSrc.startsWith('data:') ? imgSrc : null
+    if(!name){ alert('Falta el nombre'); return }
+
+    const payload = { name, brand, price, category:cat, emoji:'📦', image_url, visible:true }
+    const editId  = window._editingProdId||null
+
+    const result = await saveProductToDB(payload, editId)
+    if(result && result.message){ showToast('Error: '+result.message); return }
+
+    // Refrescar desde DB
+    const { data } = await window._SUPA.from('products').select('*').eq('visible',true).order('category').order('name')
+    if(data){
+      PRODUCTS.length=0
+      data.forEach(p=>PRODUCTS.push({n:p.name,b:p.brand||'',p:p.price,cat:p.category||'Varios',e:p.emoji||'📦',image_url:p.image_url,id:p.id}))
+      const nc=[...new Set(PRODUCTS.map(p=>p.cat).filter(Boolean))].sort()
+      uniqueCats.length=0; nc.forEach(c=>uniqueCats.push(c))
+    }
+    closeProdModal()
+    showToast(editId ? 'Producto actualizado ✓' : 'Producto creado ✓')
+    renderAdmTable(); renderProds(); renderPills(); populateCatSelects()
+    window._editingProdId = null
+  }
+
+  // Override renderAdmTable para botones con DB delete + edit con ID
+  const _origRenderAdmTable = window.renderAdmTable
+  window.renderAdmTable = function(){
+    const q   = (document.getElementById('adm-search')?.value||'').toLowerCase()
+    const cat = document.getElementById('adm-cat-filter')?.value||''
+    const list= PRODUCTS.filter(p=>{
+      const mq=!q||p.n.toLowerCase().includes(q)||(p.b||'').toLowerCase().includes(q)
+      const mc=!cat||p.cat===cat
+      return mq&&mc
+    })
+    document.getElementById('adm-prod-tbody').innerHTML=list.map(p=>{
+      const src=getImgForProd(p)||p.image_url
+      const imgHtml=src?'<img src="'+src+'" style="width:100%;height:100%;object-fit:cover;border-radius:8px">':p.e
+      return `<tr>
+        <td><div class="tbl-prod-cell"><div class="tbl-prod-icon" style="overflow:hidden">${imgHtml}</div>
+          <div><div class="tbl-prod-name">${p.n}</div><div class="tbl-prod-brand">${p.b}</div></div></div></td>
+        <td><span class="cat-badge">${p.cat}</span></td>
+        <td style="font-weight:700;color:var(--navy)">${fmt(p.p)}</td>
+        <td><div class="act-cell">
+          <button class="icon-btn" onclick="editProd(${JSON.stringify(p).replace(/"/g,'&quot;')})">✏️</button>
+          <button class="icon-btn del" onclick="delProd(${p.id})">🗑</button>
+        </div></td>
+      </tr>`
+    }).join('')
+  }
+  window.renderAdmTable()
+
+  // Edit prod
+  window.editProd = function(p){
+    window._editingProdId = p.id
+    const modal = document.getElementById('prod-modal')
+    modal.querySelector('h3').textContent = 'Editar producto'
+    modal.querySelector('[placeholder="ej: Ibuprofeno 400 x10"]').value = p.n||''
+    modal.querySelector('[placeholder="ej: Bayer"]').value = p.b||''
+    modal.querySelector('[type=number]').value = p.p||''
+    const sel=document.getElementById('modal-cat-sel'); if(sel) sel.value=p.cat||''
+    const prev=document.getElementById('prod-img-prev')
+    if(prev && (p.image_url||getImgForProd(p))){
+      const src=p.image_url||getImgForProd(p)
+      prev.innerHTML='<img src="'+src+'" style="width:100%;height:100%;object-fit:cover;border-radius:8px">'
+    }
+    modal.classList.add('open')
+  }
+
+  // Delete prod
+  window.delProd = async function(id){
+    if(!confirm('¿Eliminar este producto?')) return
+    const err = await deleteProductFromDB(id)
+    if(err){ showToast('Error al eliminar'); return }
+    const idx=PRODUCTS.findIndex(p=>p.id===id)
+    if(idx>=0) PRODUCTS.splice(idx,1)
+    renderAdmTable(); renderProds(); renderPills()
+    showToast('Producto eliminado')
+  }
+
+  // Delete offer
+  window.delOffer = async function(id){
+    if(!confirm('¿Eliminar esta oferta?')) return
+    const err = await deleteOfferFromDB(id)
+    if(err){ showToast('Error al eliminar'); return }
+    const idx=OFFERS.findIndex(o=>o.id===id)
+    if(idx>=0) OFFERS.splice(idx,1)
+    renderAdmOffers(); renderOffers()
+    showToast('Oferta eliminada')
+  }
+
+  // Hook renderAdmOffers con delete real
+  window.renderAdmOffers = function(){
+    document.getElementById('adm-offers-list').innerHTML=OFFERS.map(o=>{
+      const k=o.n.toLowerCase().replace(/\s+/g,'_').slice(0,60)
+      const src=o.image_url||(EMBEDDED_IMGS&&EMBEDDED_IMGS[k])
+      const imgHtml=src?'<img src="'+src+'" style="width:100%;height:100%;object-fit:cover">':o.e
+      return `<div class="adm-offer-row">
+        <div class="adm-offer-thumb" style="overflow:hidden">${imgHtml}</div>
+        <div style="flex:1;min-width:0"><div class="adm-offer-name">${o.n}</div><div class="adm-offer-price">${fmt(o.p)}</div></div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="tog on">Activa</button>
+          <button class="icon-btn" onclick="openOffModal()">✏️</button>
+          <button class="icon-btn del" onclick="delOffer(${o.id})">🗑</button>
+        </div>
+      </div>`
+    }).join('')
+  }
+  window.renderAdmOffers()
+
+  // Hook apply prices
+  window.applyPrices = async function(){
+    const cat = document.getElementById('pcat').value
+    const pct = parseFloat(document.getElementById('ppct').value)||0
+    if(!cat||!pct) return
+    const count = await updatePricesInDB(cat, 1+pct/100)
+    showToast(count+' precios actualizados ✓')
+    renderProds(); updatePreview()
+  }
+  // Hook apply button
+  const applyBtn = document.querySelector('[onclick*="applyPrices"]')||document.querySelector('[onclick*="Precios actualizados"]')
+  if(applyBtn) applyBtn.setAttribute('onclick','applyPrices()')
+}
+
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap">
 <style>
