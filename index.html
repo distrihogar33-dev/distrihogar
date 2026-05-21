@@ -257,70 +257,6 @@ function _hookAdminDB(){
   // Hook apply button
   const applyBtn = document.querySelector('[onclick*="applyPrices"]')||document.querySelector('[onclick*="Precios actualizados"]')
   if(applyBtn) applyBtn.setAttribute('onclick','applyPrices()')
-
-  // ── Lista rápida ──
-  window._listaChanges = {}
-
-  window.renderLista = function(){
-    const q   = (document.getElementById('lista-search')?.value||'').toLowerCase()
-    const cat = document.getElementById('lista-cat-filter')?.value||''
-    const list= PRODUCTS.filter(p=>{
-      const mq=!q||p.n.toLowerCase().includes(q)||(p.b||'').toLowerCase().includes(q)
-      const mc=!cat||p.cat===cat
-      return mq&&mc
-    })
-    // Populate cat filter once
-    const cf = document.getElementById('lista-cat-filter')
-    if(cf && cf.options.length<=1){
-      uniqueCats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;cf.appendChild(o)})
-    }
-    document.getElementById('lista-tbody').innerHTML=list.map(p=>{
-      const ch=window._listaChanges[p.id]||{}
-      const nameVal=(ch.name!==undefined?ch.name:p.n||'').replace(/"/g,'&quot;')
-      const priceVal=ch.price!==undefined?ch.price:(p.p!=null?p.p:'')
-      const changed=Object.keys(window._listaChanges[p.id]||{}).length>0
-      return `<tr style="${changed?'background:rgba(245,158,11,0.04)':''}">
-        <td><input class="adm-inp" style="width:100%;min-width:180px;font-size:13px;padding:5px 9px" value="${nameVal}"
-          oninput="markListaChange(${p.id},'name',this.value)"></td>
-        <td style="color:var(--text3);font-size:12px;white-space:nowrap">${p.b||''}</td>
-        <td><span class="cat-badge">${p.cat||''}</span></td>
-        <td><input class="adm-inp" type="number" style="width:110px;font-size:13px;padding:5px 9px;text-align:right;display:block;margin-left:auto" value="${priceVal}"
-          oninput="markListaChange(${p.id},'price',this.value)"></td>
-        <td style="color:var(--amber);font-size:14px;text-align:center">${changed?'●':''}</td>
-      </tr>`
-    }).join('')
-  }
-
-  window.markListaChange = function(id, field, val){
-    if(!window._listaChanges[id]) window._listaChanges[id]={}
-    window._listaChanges[id][field]=val
-    const badge=document.getElementById('lista-changed-badge')
-    if(badge) badge.style.display=Object.keys(window._listaChanges).length?'block':'none'
-  }
-
-  window.saveLista = async function(){
-    const ids=Object.keys(window._listaChanges)
-    if(!ids.length){showToast('Sin cambios pendientes');return}
-    let ok=0,err=0
-    for(const id of ids){
-      const ch=window._listaChanges[id]
-      const prod=PRODUCTS.find(p=>String(p.id)===String(id))
-      if(!prod) continue
-      const payload={}
-      if(ch.name!==undefined) payload.name=ch.name.trim()
-      if(ch.price!==undefined) payload.price=parseFloat(ch.price)||null
-      const {error}=await window._SUPA.from('products').update(payload).eq('id',id)
-      if(error){err++}else{
-        if(payload.name) prod.n=payload.name
-        if('price' in payload) prod.p=payload.price
-        ok++
-      }
-    }
-    window._listaChanges={}
-    document.getElementById('lista-changed-badge').style.display='none'
-    showToast(ok+' producto(s) guardado(s)'+(err?' · '+err+' error(es)':'')+' ✓')
-    renderAdmTable();renderProds();renderLista()
-  }
 }
 
 </script>
@@ -1160,7 +1096,7 @@ html{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
         <button class="adm-nb" data-page="ofertas" onclick="admNav(this)">🏷️ &nbsp;Ofertas semanales</button>
         <button class="adm-nb" data-page="productos" onclick="admNav(this)">📦 &nbsp;Productos</button>
         <button class="adm-nb" data-page="precios" onclick="admNav(this)">$ &nbsp;&nbsp;Actualizar precios</button>
-        <button class="adm-nb" data-page="lista" onclick="admNav(this);typeof renderLista==='function'&&renderLista()">📋 &nbsp;Lista rápida</button>
+        <button class="adm-nb" data-page="lista" onclick="admNav(this);renderLista()">📋 &nbsp;Lista rápida</button>
       </nav>
       <div class="adm-sb-foot">
         <button class="adm-fb" onclick="switchToCatalog()">↗ Ver catálogo</button>
@@ -1869,7 +1805,73 @@ function clickAdmNav(page){document.querySelector(`[data-page=${page}]`).click()
 function initAdminPanel(){
   document.getElementById('stat-prod').textContent=PRODUCTS.length
   document.getElementById('stat-cats').textContent=uniqueCats.length
-  renderAdmTable();renderAdmOffers();populateCatSelects()
+  renderAdmTable();renderAdmOffers();populateCatSelects();renderLista()
+}
+
+// ── Lista rápida (global, no requiere Supabase para visualizar) ──
+window._listaChanges=window._listaChanges||{}
+function renderLista(){
+  const q=(document.getElementById('lista-search')?.value||'').toLowerCase()
+  const cat=document.getElementById('lista-cat-filter')?.value||''
+  const list=PRODUCTS.filter(p=>{
+    const mq=!q||p.n.toLowerCase().includes(q)||(p.b||'').toLowerCase().includes(q)
+    const mc=!cat||p.cat===cat
+    return mq&&mc
+  })
+  // Poblar select de categorías
+  const cf=document.getElementById('lista-cat-filter')
+  if(cf&&cf.options.length<=1){
+    uniqueCats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;cf.appendChild(o)})
+  }
+  const tbody=document.getElementById('lista-tbody')
+  if(!tbody) return
+  tbody.innerHTML=list.map(p=>{
+    const pid=p.id!=null?p.id:p.n // fallback key si no hay id
+    const ch=window._listaChanges[pid]||{}
+    const nameVal=(ch.name!==undefined?ch.name:p.n||'').replace(/"/g,'&quot;')
+    const priceVal=ch.price!==undefined?ch.price:(p.p!=null?p.p:'')
+    const changed=Object.keys(window._listaChanges[pid]||{}).length>0
+    return `<tr style="${changed?'background:rgba(245,158,11,0.05)':''}">
+      <td><input class="adm-inp" style="width:100%;min-width:180px;font-size:13px;padding:5px 9px" value="${nameVal}"
+        oninput="markListaChange('${String(pid).replace(/'/g,"\\'")}','name',this.value)"></td>
+      <td style="color:var(--text3);font-size:12px;white-space:nowrap">${p.b||''}</td>
+      <td><span class="cat-badge">${p.cat||''}</span></td>
+      <td><input class="adm-inp" type="number" style="width:110px;font-size:13px;padding:5px 9px;text-align:right;display:block;margin-left:auto" value="${priceVal}"
+        oninput="markListaChange('${String(pid).replace(/'/g,"\\'")}','price',this.value)"></td>
+      <td style="color:var(--amber);font-size:14px;text-align:center;width:24px">${changed?'●':''}</td>
+    </tr>`
+  }).join('')
+}
+function markListaChange(pid,field,val){
+  if(!window._listaChanges[pid]) window._listaChanges[pid]={}
+  window._listaChanges[pid][field]=val
+  const badge=document.getElementById('lista-changed-badge')
+  if(badge) badge.style.display=Object.keys(window._listaChanges).length?'block':'none'
+}
+async function saveLista(){
+  const ids=Object.keys(window._listaChanges)
+  if(!ids.length){showToast('Sin cambios pendientes');return}
+  if(!window._SUPA){showToast('Supabase no disponible');return}
+  let ok=0,err=0
+  for(const pid of ids){
+    const ch=window._listaChanges[pid]
+    const prod=PRODUCTS.find(p=>String(p.id)===String(pid)||p.n===pid)
+    if(!prod||!prod.id) continue
+    const payload={}
+    if(ch.name!==undefined) payload.name=ch.name.trim()
+    if(ch.price!==undefined) payload.price=parseFloat(ch.price)||null
+    const {error}=await window._SUPA.from('products').update(payload).eq('id',prod.id)
+    if(error){err++}else{
+      if(payload.name) prod.n=payload.name
+      if('price' in payload) prod.p=payload.price
+      ok++
+    }
+  }
+  window._listaChanges={}
+  const badge=document.getElementById('lista-changed-badge')
+  if(badge) badge.style.display='none'
+  showToast(ok+' producto(s) guardado(s)'+(err?' · '+err+' error(es)':'')+' ✓')
+  renderAdmTable();renderProds();renderLista()
 }
 function renderAdmTable(){
   const q=(document.getElementById('adm-search')?.value||'').toLowerCase()
