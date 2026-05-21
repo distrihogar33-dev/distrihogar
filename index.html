@@ -1697,6 +1697,15 @@ function confirmCartWA(){
   const sub=cart.reduce((s,i)=>i.prod.p?s+i.prod.p*i.qty:s,0)
   if(sub>0)msg+='\nTotal estimado: '+fmt(sub)
   window.open('https://wa.me/5491157192769?text='+encodeURIComponent(msg),'_blank')
+  setTimeout(()=>{
+    cart.length=0
+    if(nameEl) nameEl.value=''
+    closeCart()
+    renderCart()
+    updateCartBadge()
+    renderProds()
+    showToast('Pedido enviado ✓')
+  },300)
 }
 
 // ── Toast ──
