@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>DistriHogar</title>
-<link rel="icon" type="image/svg+xml" href="favicon_truck.svg">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B1929'/%3E%3Crect x='1' y='3' width='15' height='13' rx='2' stroke='%23F59E0B' stroke-width='2' fill='none'/%3E%3Cpath d='M16 8h4l3 3v5h-7V8z' stroke='%23F59E0B' stroke-width='2' fill='none'/%3E%3Ccircle cx='5.5' cy='18.5' r='2.5' stroke='%23F59E0B' stroke-width='2' fill='none'/%3E%3Ccircle cx='18.5' cy='18.5' r='2.5' stroke='%23F59E0B' stroke-width='2' fill='none'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js">
 // ═══════════════════════════════════════════════
 // SUPABASE LAYER — carga datos reales sobre el estático
@@ -113,11 +113,28 @@ function _hookAdminDB(){
     const brand  = modal.querySelector('[placeholder="ej: Bayer"]').value.trim()
     const price  = parseFloat(modal.querySelector('[type=number]').value)||null
     const cat    = document.getElementById('modal-cat-sel')?.value||''
-    const prev   = document.getElementById('prod-img-prev')
-    const imgSrc = prev?.querySelector('img')?.src||null
-    // No guardar base64 en DB (demasiado grande) — solo URLs externas
-    const image_url = imgSrc && !imgSrc.startsWith('data:') ? imgSrc : null
     if(!name){ alert('Falta el nombre'); return }
+    // ── Resolver imagen ──
+    let image_url = null
+    const imgFile = document.getElementById('prod-img-file')?.files?.[0]||null
+    const imgUrlInput = (document.getElementById('prod-img-url')?.value||'').trim()
+    if(imgFile){
+      // Subir a Supabase Storage (bucket "product-images" debe existir y ser público)
+      showToast('Subiendo imagen…')
+      const ext = imgFile.name.split('.').pop().toLowerCase()
+      const path = 'products/'+Date.now()+'.'+ext
+      const { error: upErr } = await window._SUPA.storage.from('product-images').upload(path, imgFile, {upsert:true})
+      if(upErr){ showToast('Error al subir imagen: '+upErr.message); return }
+      const { data: urlData } = window._SUPA.storage.from('product-images').getPublicUrl(path)
+      image_url = urlData?.publicUrl||null
+    } else if(imgUrlInput){
+      image_url = imgUrlInput
+    } else {
+      // Mantener imagen existente si estamos editando
+      const prev = document.getElementById('prod-img-prev')
+      const s = prev?.querySelector('img')?.src||null
+      image_url = s && !s.startsWith('data:') ? s : null
+    }
 
     const payload = { name, brand, price, category:cat, emoji:'📦', image_url, visible:true }
     const editId  = window._editingProdId||null
@@ -166,7 +183,6 @@ function _hookAdminDB(){
   }
   window.renderAdmTable()
 
-  // Edit prod
   window.editProd = function(p){
     window._editingProdId = p.id
     const modal = document.getElementById('prod-modal')
@@ -175,11 +191,16 @@ function _hookAdminDB(){
     modal.querySelector('[placeholder="ej: Bayer"]').value = p.b||''
     modal.querySelector('[type=number]').value = p.p||''
     const sel=document.getElementById('modal-cat-sel'); if(sel) sel.value=p.cat||''
+    // Reset file input
+    const fi=document.getElementById('prod-img-file'); if(fi) fi.value=''
+    // Poblar URL input con imagen existente
+    const ui=document.getElementById('prod-img-url')
+    if(ui) ui.value=p.image_url||''
     const prev=document.getElementById('prod-img-prev')
     if(prev && (p.image_url||getImgForProd(p))){
       const src=p.image_url||getImgForProd(p)
       prev.innerHTML='<img src="'+src+'" style="width:100%;height:100%;object-fit:cover;border-radius:8px">'
-    }
+    } else if(prev){ prev.innerHTML='📷' }
     modal.classList.add('open')
   }
 
@@ -236,6 +257,70 @@ function _hookAdminDB(){
   // Hook apply button
   const applyBtn = document.querySelector('[onclick*="applyPrices"]')||document.querySelector('[onclick*="Precios actualizados"]')
   if(applyBtn) applyBtn.setAttribute('onclick','applyPrices()')
+
+  // ── Lista rápida ──
+  window._listaChanges = {}
+
+  window.renderLista = function(){
+    const q   = (document.getElementById('lista-search')?.value||'').toLowerCase()
+    const cat = document.getElementById('lista-cat-filter')?.value||''
+    const list= PRODUCTS.filter(p=>{
+      const mq=!q||p.n.toLowerCase().includes(q)||(p.b||'').toLowerCase().includes(q)
+      const mc=!cat||p.cat===cat
+      return mq&&mc
+    })
+    // Populate cat filter once
+    const cf = document.getElementById('lista-cat-filter')
+    if(cf && cf.options.length<=1){
+      uniqueCats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;cf.appendChild(o)})
+    }
+    document.getElementById('lista-tbody').innerHTML=list.map(p=>{
+      const ch=window._listaChanges[p.id]||{}
+      const nameVal=(ch.name!==undefined?ch.name:p.n||'').replace(/"/g,'&quot;')
+      const priceVal=ch.price!==undefined?ch.price:(p.p!=null?p.p:'')
+      const changed=Object.keys(window._listaChanges[p.id]||{}).length>0
+      return `<tr style="${changed?'background:rgba(245,158,11,0.04)':''}">
+        <td><input class="adm-inp" style="width:100%;min-width:180px;font-size:13px;padding:5px 9px" value="${nameVal}"
+          oninput="markListaChange(${p.id},'name',this.value)"></td>
+        <td style="color:var(--text3);font-size:12px;white-space:nowrap">${p.b||''}</td>
+        <td><span class="cat-badge">${p.cat||''}</span></td>
+        <td><input class="adm-inp" type="number" style="width:110px;font-size:13px;padding:5px 9px;text-align:right;display:block;margin-left:auto" value="${priceVal}"
+          oninput="markListaChange(${p.id},'price',this.value)"></td>
+        <td style="color:var(--amber);font-size:14px;text-align:center">${changed?'●':''}</td>
+      </tr>`
+    }).join('')
+  }
+
+  window.markListaChange = function(id, field, val){
+    if(!window._listaChanges[id]) window._listaChanges[id]={}
+    window._listaChanges[id][field]=val
+    const badge=document.getElementById('lista-changed-badge')
+    if(badge) badge.style.display=Object.keys(window._listaChanges).length?'block':'none'
+  }
+
+  window.saveLista = async function(){
+    const ids=Object.keys(window._listaChanges)
+    if(!ids.length){showToast('Sin cambios pendientes');return}
+    let ok=0,err=0
+    for(const id of ids){
+      const ch=window._listaChanges[id]
+      const prod=PRODUCTS.find(p=>String(p.id)===String(id))
+      if(!prod) continue
+      const payload={}
+      if(ch.name!==undefined) payload.name=ch.name.trim()
+      if(ch.price!==undefined) payload.price=parseFloat(ch.price)||null
+      const {error}=await window._SUPA.from('products').update(payload).eq('id',id)
+      if(error){err++}else{
+        if(payload.name) prod.n=payload.name
+        if('price' in payload) prod.p=payload.price
+        ok++
+      }
+    }
+    window._listaChanges={}
+    document.getElementById('lista-changed-badge').style.display='none'
+    showToast(ok+' producto(s) guardado(s)'+(err?' · '+err+' error(es)':'')+' ✓')
+    renderAdmTable();renderProds();renderLista()
+  }
 }
 
 </script>
@@ -1075,6 +1160,7 @@ html{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
         <button class="adm-nb" data-page="ofertas" onclick="admNav(this)">🏷️ &nbsp;Ofertas semanales</button>
         <button class="adm-nb" data-page="productos" onclick="admNav(this)">📦 &nbsp;Productos</button>
         <button class="adm-nb" data-page="precios" onclick="admNav(this)">$ &nbsp;&nbsp;Actualizar precios</button>
+        <button class="adm-nb" data-page="lista" onclick="admNav(this);typeof renderLista==='function'&&renderLista()">📋 &nbsp;Lista rápida</button>
       </nav>
       <div class="adm-sb-foot">
         <button class="adm-fb" onclick="switchToCatalog()">↗ Ver catálogo</button>
@@ -1129,6 +1215,30 @@ html{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
             <div class="prev-tbl-wrap"><table><thead><tr><th>Producto</th><th style="text-align:right">Actual</th><th style="text-align:right">Nuevo</th></tr></thead><tbody id="prev-tbody"></tbody></table>
             <div class="prev-apply-bar"><span class="apply-info" id="apply-info"></span><button class="btn-amber btn-sm" onclick="applyPrices()">↑ Aplicar</button></div></div>
           </div>
+        </div>
+      </div>
+      <div id="pg-lista" class="adm-page">
+        <div class="adm-ph"><h1>Lista rápida</h1><p>Editá nombres y precios sin fotos. Guardá todo junto.</p></div>
+        <div class="adm-toolbar">
+          <div style="position:relative;flex:1;min-width:180px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text3)"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M11 11l3 3m-5-1a4 4 0 100-8 4 4 0 000 8z"/></svg>
+            <input class="adm-inp" id="lista-search" type="search" placeholder="Buscar producto…" style="padding-left:34px" oninput="renderLista()">
+          </div>
+          <select class="adm-inp" id="lista-cat-filter" style="width:auto;min-width:160px" onchange="renderLista()"><option value="">Todas las categorías</option></select>
+          <button class="btn-amber btn-sm" onclick="saveLista()">💾 Guardar cambios</button>
+        </div>
+        <div id="lista-changed-badge" style="display:none;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:8px 14px;font-size:12px;color:var(--amber-dk);margin-bottom:8px">⚠️ Tenés cambios sin guardar — presioná "Guardar cambios".</div>
+        <div class="adm-tbl-wrap" style="max-height:calc(100vh - 290px);overflow-y:auto">
+          <table id="lista-tbl" style="min-width:600px">
+            <thead><tr>
+              <th style="min-width:220px">Nombre</th>
+              <th style="min-width:100px">Marca</th>
+              <th style="min-width:120px">Categoría</th>
+              <th style="text-align:right;min-width:120px">Precio ($)</th>
+              <th style="width:30px"></th>
+            </tr></thead>
+            <tbody id="lista-tbody"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -1829,7 +1939,15 @@ function updatePreview(){
   ).join('')+(list.length>20?`<tr><td colspan="3" style="text-align:center;padding:8px;color:var(--text3);font-size:11px">... y ${list.length-20} más</td></tr>`:'')
   el.style.display='block'
 }
-function openProdModal(){document.getElementById('prod-modal').classList.add('open')}
+function openProdModal(){
+  document.getElementById('prod-modal').classList.add('open')
+  // Reset campos imagen al abrir para producto nuevo
+  if(!window._editingProdId){
+    const fi=document.getElementById('prod-img-file'); if(fi) fi.value=''
+    const ui=document.getElementById('prod-img-url'); if(ui) ui.value=''
+    const prev=document.getElementById('prod-img-prev'); if(prev) prev.innerHTML='📷'
+  }
+}
 function closeProdModal(){document.getElementById('prod-modal').classList.remove('open')}
 function openOffModal(){document.getElementById('off-modal').classList.add('open')}
 function closeOffModal(){document.getElementById('off-modal').classList.remove('open')}
