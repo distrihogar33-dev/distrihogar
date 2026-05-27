@@ -1251,12 +1251,12 @@ html{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
         <div class="adm-inp-group"><label class="adm-inp-label">Marca</label><input class="adm-inp" placeholder="ej: Bayer"></div>
         <div class="adm-inp-group"><label class="adm-inp-label">Precio ($)</label><input class="adm-inp" type="number" placeholder="1500"></div>
       </div>
-      <div class="adm-inp-group"><label class="adm-inp-label">Categoría</label><select class="adm-inp" id="modal-cat-sel"></select></div>
+      <div class="adm-inp-group"><label class="adm-inp-label">Categoría</label><input class="adm-inp" id="modal-cat-sel" list="modal-cat-list" placeholder="ej: Limpieza, Almacén..."><datalist id="modal-cat-list"></datalist></div>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" checked> Visible para clientes</label>
     </div>
     <div class="m-foot">
       <button class="btn-ghost btn-sm" onclick="closeProdModal()">Cancelar</button>
-      <button class="btn-amber btn-sm" onclick="closeProdModal();showToast('Producto guardado')">Guardar producto</button>
+      <button class="btn-amber btn-sm" onclick="saveProd()">Guardar producto</button>
     </div>
   </div>
 </div>
@@ -1916,8 +1916,8 @@ function populateCatSelects(){
   const opts=uniqueCats.map(c=>`<option value="${c}">${c}</option>`).join('')
   const f=document.getElementById('adm-cat-filter')
   if(f)f.innerHTML='<option value="">Todas las categorías</option>'+opts
-  const m=document.getElementById('modal-cat-sel')
-  if(m)m.innerHTML='<option value="">Sin categoría</option>'+opts
+  const m=document.getElementById('modal-cat-list')
+  if(m)m.innerHTML=opts
   const pp=document.getElementById('pcat')
   if(pp)pp.innerHTML='<option value="">Seleccioná una categoría</option>'+
     uniqueCats.map(c=>`<option value="${c}">${c} (${PRODUCTS.filter(x=>x.cat===c).length})</option>`).join('')
